@@ -4,146 +4,125 @@ import numpy as np
 from PIL import Image
 from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
 
-# ------------------------------------
-# PAGE SETTINGS
-# ------------------------------------
+# ==========================================
+# 1. CONFIGURATION
+# ==========================================
 st.set_page_config(
-    page_title="Flower Classification",
+    page_title="Flower AI | Sunflower vs Tulip",
     page_icon="🌻",
-    layout="centered"
+    layout="centered",
+    initial_sidebar_state="collapsed"
 )
 
-# ------------------------------------
-# LOAD MODEL
-# ------------------------------------
+# ==========================================
+# 2. MODEL LOADING (Cached)
+# ==========================================
 @st.cache_resource
 def load_model():
-    return tf.keras.models.load_model("MobileNetV2.h5")
+    try:
+        model = tf.keras.models.load_model("MobileNetV2.h5")
+        return model
+    except OSError:
+        st.error("❌ Model file 'MobileNetV2.h5' not found.")
+        return None
+    except Exception as e:
+        st.error(f"❌ Error loading model: {e}")
+        return None
 
 model = load_model()
 
-# ------------------------------------
-# CLASS NAMES
-# IMPORTANT:
-# Alphabetical Order -> 0: Sunflower, 1: Tulip
-# ------------------------------------
-CLASS_NAMES = [
-    "Sunflower",
-    "Tulip"
-]
-
-# ------------------------------------
-# TITLE
-# ------------------------------------
-st.title("🌸 Flower Classification System")
-
-st.write(
-    "Upload a flower image and the AI will identify whether it is a Sunflower or Tulip."
+# ==========================================
+# 3. HEADER & UI
+# ==========================================
+st.title("🌻 Sunflower vs. Tulip Classifier")
+st.markdown("""
+    <style>
+    h1 {color: #FFA500; text-align: center;}
+    .stButton>button {width: 100%;}
+    </style>
+    """, unsafe_allow_html=True
 )
 
-# ------------------------------------
-# FILE UPLOAD
-# ------------------------------------
+st.write("Upload an image to identify if it is a **Sunflower** or a **Tulip**.")
+
+# ==========================================
+# 4. FILE UPLOAD
+# ==========================================
 uploaded_file = st.file_uploader(
-    "Choose an Image",
-    type=["jpg", "jpeg", "png"]
+    "Choose an image...", 
+    type=["jpg", "jpeg", "png"],
+    label_visibility="collapsed"
 )
 
-# ------------------------------------
-# PREDICTION
-# ------------------------------------
-if uploaded_file is not None:
+# ==========================================
+# 5. PREDICTION LOGIC
+# ==========================================
+if uploaded_file is not None and model is not None:
+    
+    # --- Layout ---
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        image = Image.open(uploaded_file).convert("RGB")
+        st.image(image, caption="Uploaded Image", use_container_width=True)
 
-    image = Image.open(uploaded_file).convert("RGB")
+    with col2:
+        st.write("### Analysis")
+        
+        # --- Preprocessing (CRITICAL FIX) ---
+        # 1. Resize to 224x224
+        # 2. Convert to array
+        # 3. Apply MobileNetV2 preprocessing (Scales to -1 to 1)
+        #    *This fixes the low confidence issue*
+        img_resized = image.resize((224, 224))
+        img_array = np.array(img_resized)
+        img_array = preprocess_input(img_array) 
+        img_array = np.expand_dims(img_array, axis=0)
 
-    st.image(
-        image,
-        caption="Uploaded Image",
-        use_container_width=True
-    )
+        # --- Predict ---
+        with st.spinner("Analyzing..."):
+            # Returns a value between 0.0 and 1.0
+            prediction = float(model.predict(img_array, verbose=0)[0][0])
 
-    # Resize image
-    image_resized = image.resize((224, 224))
+        # --- Interpret Results ---
+        # Folders are usually sorted alphabetically: 
+        # 'sunflower' (Index 0) < 'tulip' (Index 1)
+        
+        CLASS_NAMES = ["Sunflower", "Tulip"]
+        THRESHOLD = 0.5
 
-    img_array = np.array(image_resized)
+        if prediction < THRESHOLD:
+            predicted_class = CLASS_NAMES[0] # Sunflower
+            confidence_score = (1 - prediction) * 100
+            emoji = "🌻"
+            color = "🟡" # Yellowish theme
+        else:
+            predicted_class = CLASS_NAMES[1] # Tulip
+            confidence_score = prediction * 100
+            emoji = "🌷"
+            color = "🔴"
 
-    # FIXED: Use MobileNetV2 specific preprocessing
-    # This scales pixels to [-1, 1] which is what the model expects
-    img_array = preprocess_input(img_array)
+        # --- Display Output ---
+        st.metric(label="Prediction", value=f"{emoji} {predicted_class}")
+        
+        # Confidence Bar
+        st.progress(int(confidence_score))
+        st.write(f"**Confidence:** {confidence_score:.2f}%")
 
-    img_array = np.expand_dims(
-        img_array,
-        axis=0
-    )
+        # Feedback Logic
+        if confidence_score > 85:
+            st.success("✅ High Confidence Match")
+        elif confidence_score > 65:
+            st.info("ℹ️ Good Match")
+        else:
+            st.warning("⚠️ Low Confidence (Ensure image is clear)")
 
-    # Predict
-    prediction = float(
-        model.predict(
-            img_array,
-            verbose=0
-        )[0][0]
-    )
+    # --- Debugging Section ---
+    with st.expander("🔧 Technical Details"):
+        st.write(f"**Raw Score:** {prediction:.5f}")
+        st.write(f"**Threshold:** 0.5")
+        st.write(f"**Detected Class:** {predicted_class}")
+        st.caption("If confidence is low, ensure the model was trained with `preprocess_input`.")
 
-    # --------------------------------
-    # CLASSIFICATION
-    # --------------------------------
-    # 0.0 = Sunflower, 1.0 = Tulip (Alphabetical)
-    if prediction < 0.5:
-        predicted_class = "Sunflower"
-        confidence = (1 - prediction) * 100
-    else:
-        predicted_class = "Tulip"
-        confidence = prediction * 100
-
-    # Safety clamp
-    confidence = max(
-        0.0,
-        min(confidence, 100.0)
-    )
-
-    # --------------------------------
-    # DISPLAY RESULTS
-    # --------------------------------
-    st.markdown("## Prediction")
-
-    st.success(predicted_class)
-
-    st.markdown("## Confidence")
-
-    st.progress(int(confidence))
-
-    st.write(
-        f"**{confidence:.2f}%**"
-    )
-
-    # --------------------------------
-    # CONFIDENCE MESSAGE
-    # --------------------------------
-    if confidence >= 90:
-        st.success(
-            "Very High Confidence"
-        )
-    elif confidence >= 80:
-        st.info(
-            "High Confidence"
-        )
-    elif confidence >= 70:
-        st.warning(
-            "Moderate Confidence"
-        )
-    else:
-        st.error(
-            "Low Confidence"
-        )
-
-    # Debug Section
-    with st.expander("Model Details"):
-        st.write(
-            f"Raw Prediction Value: {prediction:.4f}"
-        )
-        st.write(
-            "Model Used: MobileNetV2"
-        )
-        st.write(
-            "Test Accuracy: 96.80%"
-        )
+else:
+    st.info("👆 Waiting for image upload...")

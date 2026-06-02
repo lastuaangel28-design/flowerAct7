@@ -1,0 +1,4 @@
+Model,Training Accuracy,Validation Accuracy,Test Accuracy,Training Time (sec)
+MobileNetV2,95.57,96.97,96.8,674.07
+ResNet50,60.63,67.79,67.79,2366.79
+EfficientNetB0,56.14,57.31,57.31,587.94
